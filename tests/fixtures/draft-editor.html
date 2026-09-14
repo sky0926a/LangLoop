@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8" /><title>
+  Draft.js controlled fixture
+</title>
+<link rel="stylesheet" href="/draft-vendor/draft.css" />
+<style>
+  body {
+    font: 16px system-ui;
+    padding: 40px;
+  }
+  .editor {
+    padding: 12px 16px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+  .public-DraftEditor-content {
+    line-height: 27.36px;
+    min-height: 27.36px;
+  }
+  .public-DraftStyleDefault-block {
+    margin: 0;
+  }
+</style>
+<div id="app"></div>
+<output id="model-text"></output
+><button id="rerender" type="button">Parent rerender</button>
+<script src="/draft-vendor/react.js"></script>
+<script src="/draft-vendor/react-dom.js"></script>
+<script src="/draft-vendor/immutable.js"></script>
+<script src="/draft-vendor/draft.js"></script>
+<script>
+  class App extends React.Component {
+    constructor(p) {
+      super(p);
+      this.state = {
+        editorState: Draft.EditorState.createWithContent(
+          Draft.ContentState.createFromText("I look forward to hear from you."),
+        ),
+        tick: 0,
+      };
+    }
+    componentDidMount() {
+      document.getElementById("rerender").onclick = () =>
+        this.setState({ tick: this.state.tick + 1 });
+      this.record();
+    }
+    componentDidUpdate() {
+      this.record();
+    }
+    record() {
+      document.getElementById("model-text").textContent = this.state.editorState
+        .getCurrentContent()
+        .getPlainText();
+    }
+    render() {
+      return React.createElement(
+        "div",
+        { className: "editor" },
+        React.createElement(Draft.Editor, {
+          editorState: this.state.editorState,
+          onChange: (editorState) => this.setState({ editorState }),
+          ariaLabel: "Company draft",
+        }),
+      );
+    }
+  }
+  ReactDOM.render(React.createElement(App), document.getElementById("app"));
+</script>

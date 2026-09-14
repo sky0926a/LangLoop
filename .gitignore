@@ -1,0 +1,42 @@
+# Dependencies and generated extension packages
+node_modules/
+/dist/
+
+# Test output and browser profiles
+/test-results/
+/playwright-report/
+/blob-report/
+/coverage/
+*.tsbuildinfo
+
+# Local investigation, reference clones, screenshots, and session data
+/.local/
+/.spectra/
+/.agents/
+/.claude/
+/.codex/
+
+# Credentials and private configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crx
+
+# Logs, OS metadata, and editor state
+*.log
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+
+# Local specifications and agent workflow configuration
+/openspec/
+/.spectra.yaml
+/AGENTS.md

@@ -1,0 +1,31 @@
+LangLoop — Chrome unpacked installation / Chrome 手動安裝
+
+1. Download langloop-extension.zip (not Source code).
+2. Extract it to a permanent folder.
+3. Open chrome://extensions and enable Developer mode.
+4. Click Load unpacked and select the folder containing manifest.json.
+5. Open LangLoop Settings, configure an AI connection, and Save & test.
+
+1. 下載 langloop-extension.zip，不是 Source code 原始碼。
+2. 解壓到固定資料夾，之後不要刪除。
+3. 開啟 chrome://extensions，啟用「開發人員模式」。
+4. 按「載入未封裝項目」，選內含 manifest.json 的資料夾。
+5. 開啟 LangLoop 設定，設定 AI 連線並儲存測試。
+
+Desktop Chrome 116+. Managed browsers may prohibit Developer mode.
+No Node.js, terminal or separate CLIProxyAPI service required for this ZIP.
+AI service account/API access is required; direct subscription adapters are experimental.
+需要桌面 Chrome 116+。公司管理的瀏覽器可能禁止開發人員模式。
+成品不需要 Node.js、終端機或另開 CLIProxyAPI；仍需可用的 AI 帳號或 API。
+
+Update: Export a backup, replace files at the same path, reload the extension,
+then refresh web pages. Do not uninstall or change the manifest identity key.
+Backups do not include API keys, login tokens or the account connection vault.
+更新：先匯出備份，在原位置替換檔案，重新載入擴充功能並重新整理網頁。
+不要解除安裝或變更 manifest 識別 key。備份不包含金鑰、token 或多帳號連線資料。
+
+SHA-256 verification / 校驗（optional）：
+macOS: shasum -a 256 -c SHA256SUMS.txt
+Linux: sha256sum -c SHA256SUMS.txt
+Windows PowerShell: Get-FileHash .\langloop-extension.zip -Algorithm SHA256
+Compare the Windows result with SHA256SUMS.txt.
