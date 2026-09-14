@@ -279,7 +279,7 @@ export function mountWidget(
   draftInput.setAttribute("aria-label", t("Original draft"));
   draftInput.dataset.userContent = "";
   draftInput.maxLength = 20000;
-  draftInput.rows = 4;
+  draftInput.rows = 3;
   draftInput.style.cssText =
     "box-sizing:border-box;width:100%;resize:vertical;padding:10px;margin-top:6px;border:1px solid #cdd5ee;border-radius:8px;font:14px/1.5 system-ui;color:#28314d;background:white";
   draftLabel.append(draftInput);
@@ -497,6 +497,13 @@ export function mountWidget(
         );
         generate.textContent = t("重新產生建議");
         writingStatus.textContent = t("選一個版本套用，不會自動送出訊息。");
+        // Scroll only the assistant, keeping the page and editor in place.
+        const firstResult = preview.firstElementChild;
+        if (!suggestion.hidden && firstResult) {
+          suggestion.scrollTop +=
+            firstResult.getBoundingClientRect().top -
+            writingHeading.getBoundingClientRect().bottom - 8;
+        }
       }),
   );
   generate.className = "primary generate";

@@ -753,6 +753,13 @@ test("writing draft stays editable after apply and regenerates without changing 
   await web
     .getByRole("button", { name: /^Generate (suggestions|again)$/ })
     .click();
+  const baseline = web.locator('[data-writing-output="baseline"]');
+  await expect(baseline).toBeInViewport({ ratio: 1 });
+  const headingBottom = await web
+    .locator(".writing-heading")
+    .evaluate((element) => element.getBoundingClientRect().bottom);
+  expect((await baseline.boundingBox())!.y).toBeGreaterThan(headingBottom);
+  await expect(web.getByRole("button", { name: "Close suggestions" })).toBeInViewport();
   await web.getByRole("button", { name: "Apply basic version" }).click();
   await expect(web.locator("[data-writing-output]")).toHaveCount(2);
   await expect(draft).toHaveValue("I look forward to hear from you.");
