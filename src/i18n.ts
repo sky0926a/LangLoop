@@ -1,6 +1,10 @@
 export type UILanguage = "zh-TW" | "en";
 export const messages: [string, string][] = [
   [
+    "The AI returned the wrong output language. Please generate suggestions again.",
+    "AI 回傳的語言不符合所選輸出語言，請重新產生建議。",
+  ],
+  [
     "Direct subscription login is experimental. Account authorization and model availability must be tested separately.",
     "直接訂閱登入為實驗功能，帳號授權與模型是否可用需分別測試。",
   ],

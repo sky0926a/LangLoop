@@ -300,7 +300,7 @@ it("sends configured context while preserving explicit language and JSON contrac
   const body = JSON.parse(fetcher.mock.calls[0][1].body);
   expect(body.messages[0].content).toContain("商務溝通專家");
   expect(body.messages[0].content).toContain("Translation output language: en");
-  expect(body.messages[0].content).toContain("Explanation language: zh-TW");
+  expect(body.messages[0].content).toContain("Explanation language (explanation and rule fields ONLY): zh-TW");
   expect(body.messages[0].content).toContain("Return JSON only");
 });
 
@@ -396,4 +396,95 @@ it("isolates cached output between accounts of the same provider", () => {
   expect(cacheIdentity(req, { ...defaults, connectionId: "a" })).not.toBe(
     cacheIdentity(req, { ...defaults, connectionId: "b" }),
   );
+});
+
+it("rejects Chinese writing results when English was explicitly requested", () => {
+  const request: Inference = {
+    ...req,
+    operation: "writing",
+    text: "謝謝你的更新，明天我會回覆。",
+    targetLanguage: "en",
+  };
+  const chinese = { result: request.text, explanation: "原文正確。", rule: "" };
+  const english = {
+    ...chinese,
+    result: "Thanks for the update. I will reply tomorrow.",
+  };
+  for (const bad of [
+    { baseline: chinese, suggestion: english },
+    { baseline: english, suggestion: chinese },
+  ]) {
+    expect(() =>
+      decodeResponse({ ...bad, sourceLanguage: "zh" }, request),
+    ).toThrow(/language/i);
+  }
+  expect(
+    decodeResponse(
+      { baseline: english, suggestion: english, sourceLanguage: "zh" },
+      request,
+    ),
+  ).toMatchObject({ baseline: english });
+  expect(
+    decodeResponse(
+      { baseline: chinese, suggestion: chinese, sourceLanguage: "zh" },
+      { ...request, targetLanguage: "original" },
+    ),
+  ).toMatchObject({ baseline: chinese });
+});
+
+it("keeps explicit English output above a Chinese business profile and explanations", async () => {
+  const variant = {
+    result: "Thanks for the update. I will reply tomorrow.",
+    explanation: "忠實翻譯。",
+    rule: "",
+  };
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  sourceLanguage: "zh",
+                  baseline: variant,
+                  suggestion: variant,
+                }),
+              },
+            },
+          ],
+        }),
+      ),
+    );
+  await infer(
+    {
+      ...req,
+      operation: "writing",
+      text: "謝謝你的更新，明天我會回覆。",
+      targetLanguage: "en",
+      writingProfileId: "business",
+    },
+    {
+      ...defaults,
+      setupKind: "custom",
+      model: "test",
+      writingProfiles: [
+        {
+          id: "business",
+          name: "商務寫作",
+          prompt: "你是一位擁有 15 年經驗的商務溝通專家。保留原文語言。",
+        },
+      ],
+    },
+    new AbortController().signal,
+    fetcher,
+  );
+  const prompt = JSON.parse(fetcher.mock.calls[0][1].body).messages[0].content;
+  expect(prompt).toContain(
+    "Both baseline.result and suggestion.result MUST be written in English",
+  );
+  expect(prompt).toContain("overrides ALL context/style preferences");
+  expect(prompt).toContain("explanation and rule fields ONLY");
+  expect(prompt).not.toContain("For single correct/rewrite operations");
 });

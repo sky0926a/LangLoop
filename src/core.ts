@@ -298,7 +298,24 @@ export function cacheIdentity(r: Inference, s: Settings) {
   ]);
 }
 export function decodeResponse(value: unknown, request: Inference) {
-  if (request.operation === "writing") return writingResultSchema.parse(value);
+  if (request.operation === "writing") {
+    const result = writingResultSchema.parse(value);
+    // Catch clearly untranslated Chinese output without rejecting English text
+    // that includes a Chinese proper name. This is a script check, not a full
+    // language detector; short names and mixed-language text remain ambiguous.
+    if (request.targetLanguage === "en") {
+      for (const variant of [result.baseline, result.suggestion]) {
+        const han = variant.result.match(/\p{Script=Han}/gu)?.length ?? 0;
+        const latin = variant.result.match(/\p{Script=Latin}/gu)?.length ?? 0;
+        if (han >= 2 && han > latin)
+          throw new Fault(
+            "invalid_response",
+            "The AI returned the wrong output language. Please generate suggestions again.",
+          );
+      }
+    }
+    return result;
+  }
   if (request.operation !== "article") return resultSchema.parse(value);
   const data = z
     .object({
