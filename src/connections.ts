@@ -17,6 +17,7 @@ const fields = settingsSchema
     setupKind: true,
     endpoint: true,
     model: true,
+    reasoningEffort: true,
     key: true,
     managementPath: true,
   })

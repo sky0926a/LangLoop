@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Fault } from "./core";
+import { Fault, contextLimitFault } from "./core";
 const AUTH = "https://auth.openai.com";
 const CLIENT = "app_EMoamEEZ73f0CkXaXp7hrann";
 export const CODEX = "https://chatgpt.com/backend-api/codex";
@@ -255,11 +255,14 @@ export function decodeCodexStream(raw: string): unknown {
     }
     if (
       ["error", "response.failed", "response.incomplete"].includes(event.type)
-    )
+    ) {
+      const limit = contextLimitFault(event.response?.error ?? event.error ?? event);
+      if (limit) throw limit;
       throw new Fault(
         "invalid_response",
         "ChatGPT did not complete the response. Retry explicitly.",
       );
+    }
     if (event.type === "response.output_item.done" && event.item) {
       completedItems.set(
         event.item.id ?? event.output_index ?? completedItems.size,

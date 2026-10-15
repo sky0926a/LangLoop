@@ -6,6 +6,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   defaults,
+  writingSameLanguage,
+  reasoningEfforts,
+  supportsReasoningEffort,
   wordDifferences,
   originPattern,
   type Inference,
@@ -483,10 +486,7 @@ function App() {
       requestId.current = undefined;
     }
   }
-  const pairedSameLanguage =
-    writingOutput === "original" ||
-    (writingOutput === "en" && writingPair?.sourceLanguage === "en") ||
-    (writingOutput === "zh-TW" && writingPair?.sourceLanguage === "zh");
+  const pairedSameLanguage = writingSameLanguage(writingOutput, writingPair?.sourceLanguage);
   const displayedResults = writingPair
     ? [
         {
@@ -601,9 +601,12 @@ function App() {
                     setResult(null);
                   }}
                 >
+                  <option value="auto">{t("Auto-detect (keep input language)")}</option>
                   <option value="original">{t("保持原文")}</option>
                   <option value="en">{t("英文")}</option>
                   <option value="zh-TW">繁體中文</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
                 </select>
               </label>
             </div>
@@ -1405,6 +1408,29 @@ function App() {
                   />
                 </label>
               </details>
+              <label>
+                {t("Reasoning effort")}
+                <select
+                  aria-label={t("Reasoning effort")}
+                  value={settings.reasoningEffort}
+                  disabled={!supportsReasoningEffort(settings.setupKind)}
+                  onChange={(e) => setSettings({
+                    ...settings,
+                    reasoningEffort: e.target.value as Settings["reasoningEffort"],
+                  })}
+                >
+                  {reasoningEfforts.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort === "default" ? t("Model default") : effort}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="caption">
+                {t(supportsReasoningEffort(settings.setupKind)
+                  ? "Supported effort levels depend on the model. Higher effort can take longer. Choose Model default if unsure."
+                  : "This connection does not support configuring reasoning effort.")}
+              </p>
               {settings.setupKind !== "chatgpt" &&
                 !isSubscription(settings.setupKind) && (
                   <>

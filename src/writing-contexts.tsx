@@ -103,9 +103,12 @@ export function WritingContexts({
             })
           }
         >
-          <option value="original">{t("保持原文")}</option>
+          <option value="auto">{t("Auto-detect (keep input language)")}</option>
+                  <option value="original">{t("保持原文")}</option>
           <option value="en">{t("英文")}</option>
           <option value="zh-TW">繁體中文</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
         </select>
       </label>
       <p className="caption">

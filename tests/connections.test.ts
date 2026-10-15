@@ -34,13 +34,15 @@ it("concurrent additions preserve independent same-provider accounts and active 
   expect(await listConnections()).toHaveLength(3);
   expect(local.settings.key).toBe("old-key");
   const s = await selectConnection(a.id);
-  await saveConnectionSettings({ ...s, key: "a-key", model: "a-model" });
+  await saveConnectionSettings({ ...s, key: "a-key", model: "a-model", reasoningEffort: "high" });
   const other = await selectConnection(b.id);
   expect(other.key).toBe("");
   expect(other.model).toBe("");
+  expect(other.reasoningEffort).toBe("default");
   const restored = await selectConnection(a.id);
   expect(restored.key).toBe("a-key");
   expect(restored.model).toBe("a-model");
+  expect(restored.reasoningEffort).toBe("high");
 });
 it("stale settings cannot overwrite a newly selected account", async () => {
   await listConnections();

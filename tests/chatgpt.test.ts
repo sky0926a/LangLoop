@@ -269,3 +269,7 @@ it("isolates same-provider credentials and logout by connection", async () => {
   expect(local["codexAuth:private"]).toBeUndefined();
   expect(await accessToken("work")).toBe("work-token");
 });
+
+it("recognizes context overflow in failed Codex stream events without exposing raw text", () => {
+  expect(() => decodeCodexStream('data: '+JSON.stringify({type:'response.failed',response:{error:{code:'context_length_exceeded',message:'private detail'}}})+'\n')).toThrow(expect.objectContaining({code:'context_limit'}));
+});

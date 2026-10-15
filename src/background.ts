@@ -29,6 +29,8 @@ import {
 import { z } from "zod";
 import {
   settingsSchema,
+  writingTargetSchema,
+  writingSameLanguage,
   defaults,
   wordDifferences,
   discoverySchema,
@@ -314,7 +316,7 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
         .object({
           profileId: z.string().min(1).max(64),
           draft: z.string().trim().min(1).max(20000).optional(),
-          target: z.enum(["original", "en", "zh-TW"]),
+          target: writingTargetSchema,
         })
         .strict()
         .parse(p.data);
@@ -337,10 +339,7 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
           generation: captured.generation,
         },
       });
-      const sameLanguage =
-        options.target === "original" ||
-        (options.target === "en" && result.sourceLanguage === "en") ||
-        (options.target === "zh-TW" && result.sourceLanguage === "zh");
+      const sameLanguage = writingSameLanguage(options.target, result.sourceLanguage);
       const variant = (value: any) => ({
         ...value,
         original: captured.text,

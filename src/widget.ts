@@ -312,9 +312,12 @@ export function mountWidget(
   const profileSelect = selectField(t("情境"));
   const outputSelect = selectField(t("輸出語言"));
   for (const [value, label] of [
+    ["auto", t("Auto-detect (keep input language)")],
     ["original", t("保持原文")],
     ["en", t("英文")],
     ["zh-TW", "繁體中文"],
+    ["ja", "日本語"],
+    ["ko", "한국어"],
   ]) {
     const option = document.createElement("option");
     option.value = value;

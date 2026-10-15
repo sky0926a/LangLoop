@@ -643,6 +643,7 @@ test("paired writing preserves context profiles, local diffs and explicit apply"
   await panel
     .getByRole("tab", { name: "Writing contexts", exact: true })
     .click();
+  await panel.getByLabel("Default writing output language", { exact: true }).selectOption("ja");
   await panel.getByLabel("Context name", { exact: true }).fill("商務對話");
   await panel
     .getByLabel("Context / custom prompt")
@@ -665,6 +666,11 @@ test("paired writing preserves context profiles, local diffs and explicit apply"
       .getByLabel("Default writing context", { exact: true })
       .locator("option"),
   ).toHaveText(["商務對話", "日常聊天"]);
+  await expect(panel.getByLabel("Default writing output language", { exact: true })).toHaveValue("ja");
+  for (const target of ["auto", "ko", "original"]) {
+    await panel.getByLabel("Default writing output language", { exact: true }).selectOption(target);
+  }
+  await panel.getByRole("button", { name: "Save settings", exact: true }).click();
   await web.reload();
   await web.locator("#draft").fill("好的, 我等下會釋出下一版");
   const before = requests.length;
@@ -675,6 +681,10 @@ test("paired writing preserves context profiles, local diffs and explicit apply"
   await web
     .getByLabel("Context", { exact: true })
     .selectOption({ label: "商務對話" });
+  for (const target of ["auto", "ja", "ko"]) {
+    await web.getByLabel("Output language", { exact: true }).selectOption(target);
+    await expect(web.getByLabel("Output language", { exact: true })).toHaveValue(target);
+  }
   await web.getByLabel("Output language", { exact: true }).selectOption("en");
   expect(requests.length).toBe(before);
   await web
@@ -875,6 +885,9 @@ test("Assist uses the same paired context and language review", async () => {
   await panel
     .getByLabel("Writing output language", { exact: true })
     .selectOption("en");
+  for (const target of ["auto", "ja", "ko", "en"]) {
+    await panel.getByLabel("Writing output language", { exact: true }).selectOption(target);
+  }
   const count = requests.length;
   await panel
     .getByRole("button", { name: /^Generate (suggestions|again)$/ })
@@ -1229,6 +1242,7 @@ test("separate settings sections and multiple same-provider connections retain i
     .getByLabel("Active connection", { exact: true })
     .inputValue();
   await p.getByLabel("Model", { exact: true }).fill("personal-model");
+  await p.getByLabel("Reasoning effort", { exact: true }).selectOption("low");
   await p.getByRole("button", { name: "Save settings", exact: true }).click();
 
   await p
@@ -1240,10 +1254,12 @@ test("separate settings sections and multiple same-provider connections retain i
       .locator("option:checked"),
   ).toContainText("Agent 2");
   await expect(p.getByLabel("Model", { exact: true })).toHaveValue("");
+  await expect(p.getByLabel("Reasoning effort", { exact: true })).toHaveValue("default");
   await p.getByLabel("Active connection", { exact: true }).selectOption(first);
   await expect(p.getByLabel("Model", { exact: true })).toHaveValue(
     "personal-model",
   );
+  await expect(p.getByLabel("Reasoning effort", { exact: true })).toHaveValue("low");
   p.once("dialog", async (dialog) => {
     expect(dialog.message()).toContain("Agent 1");
     await dialog.dismiss();

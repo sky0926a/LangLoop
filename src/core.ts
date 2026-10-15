@@ -7,7 +7,11 @@ export const writingProfileSchema = z
     prompt: z.string().max(4000),
   })
   .strict();
-export const writingTargetSchema = z.enum(["original", "en", "zh-TW"]);
+export const writingTargetSchema = z.enum(["original", "auto", "en", "zh-TW", "ja", "ko"]);
+export const reasoningEfforts = ["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export function writingSameLanguage(target: string, source?: string) {
+  return target === "original" || target === "auto" || (target === "zh-TW" ? source === "zh" : target === source);
+}
 export const settingsSchema = z
   .object({
     version: z.literal(1),
@@ -15,6 +19,7 @@ export const settingsSchema = z
     uiLanguage: z.enum(["zh-TW", "en"]).default("zh-TW"),
     endpoint: z.string().max(2048),
     model: z.string().max(256),
+    reasoningEffort: z.enum(reasoningEfforts).default("default"),
     setupKind: z
       .enum([
         "custom",
@@ -54,6 +59,7 @@ export const defaults: Settings = {
   managementPath: "/management.html",
   endpoint: "https://chatgpt.com/backend-api/codex",
   model: "",
+  reasoningEffort: "default",
   key: "",
   target: "zh-TW",
   writingContext: "",
@@ -80,7 +86,7 @@ export const writingResultSchema = z
   .object({
     baseline: resultSchema,
     suggestion: resultSchema,
-    sourceLanguage: z.enum(["en", "zh", "other"]),
+    sourceLanguage: z.enum(["en", "zh", "ja", "ko", "other"]),
   })
   .strict();
 export const operationSchema = z.enum([
@@ -124,8 +130,18 @@ export class Fault extends Error {
   constructor(
     public code: string,
     message: string,
+    public retryAfterMs?: number,
   ) {
     super(message);
+  }
+}
+export function contextLimitFault(error: unknown): Fault | undefined {
+  if (!error || typeof error !== "object") return;
+  const value = error as { code?: unknown; type?: unknown; message?: unknown };
+  const codes = ["context_length_exceeded", "context_window_exceeded", "input_too_long", "prompt_too_long"];
+  if ([value.code, value.type].some((code) => typeof code === "string" && codes.includes(code)) ||
+      (typeof value.message === "string" && /(?:context (?:length|window|limit).{0,80}(?:exceed|too|limit)|maximum context length|(?:exceed|too long).{0,80}context|prompt is too long)/i.test(value.message.slice(0, 2000)))) {
+    return new Fault("context_limit", "The model context limit was exceeded. A single paragraph may be too long; select a model with a larger context window or translate a shorter selection.");
   }
 }
 export function fault(error: unknown) {
@@ -277,6 +293,14 @@ export function wordDifferences(original: string, replacement: string) {
     segments,
   };
 }
+export function supportsReasoningEffort(kind: Settings["setupKind"]) {
+  return kind === "chatgpt" || kind === "custom" || kind === "cliproxyapi";
+}
+export function effectiveReasoningEffort(settings: Settings) {
+  return supportsReasoningEffort(settings.setupKind)
+    ? settings.reasoningEffort ?? "default"
+    : "default";
+}
 export function cacheIdentity(r: Inference, s: Settings) {
   return JSON.stringify([
     1,
@@ -290,6 +314,7 @@ export function cacheIdentity(r: Inference, s: Settings) {
     s.setupKind,
     s.endpoint,
     s.model,
+    effectiveReasoningEffort(s),
     s.writingContext,
     s.writingProfiles,
     r.writingProfileId,

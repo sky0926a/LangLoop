@@ -1,5 +1,14 @@
 export type UILanguage = "zh-TW" | "en";
 export const messages: [string, string][] = [
+  ["The model context limit was exceeded. A single paragraph may be too long; select a model with a larger context window or translate a shorter selection.", "超過模型的上下文上限；單一段落可能過長，請換用上下文容量較大的模型，或選取較短的文字翻譯。"],
+  ["The page needs too many smaller batches. Select a model with a larger context window or translate a shorter selection.", "此頁需要拆成太多小批次，請換用上下文容量較大的模型，或選取較短的文字翻譯。"],
+  ["AI account quota is exhausted. Wait for the quota reset or switch connections.", "AI 帳號額度已用盡，請等待額度重設或切換連線。"],
+  ["The AI service is rate limiting requests. Wait before retrying; completed translations are preserved.", "AI 服務目前限制請求頻率，請稍後再試；已完成的翻譯會保留。"],
+  ["Auto-detect (keep input language)", "自動偵測（沿用輸入語言）"],
+  ["Reasoning effort", "推理強度（effort）"],
+  ["Model default", "模型預設"],
+  ["Supported effort levels depend on the model. Higher effort can take longer. Choose Model default if unsure.", "可用強度依模型而異，較高強度可能需要更久。不確定時請選擇「模型預設」。"],
+  ["This connection does not support configuring reasoning effort.", "此連線目前不支援設定推理強度。"],
   [
     "The AI returned the wrong output language. Please generate suggestions again.",
     "AI 回傳的語言不符合所選輸出語言，請重新產生建議。",
