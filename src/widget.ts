@@ -348,7 +348,7 @@ export function mountWidget(
       positionMini();
     });
   async function applyVariant(value: any) {
-    if (pair?.canReplace === false) throw new Error(t("This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor."));
+    if (pair?.canReplace === false) throw new Error(t("Preview only for this editor. Copy the suggestion as plain text; the original field has not been changed."));
     applying = true;
     try {
       await rpc("apply", value);
@@ -529,8 +529,10 @@ export function mountWidget(
         );
         generate.textContent = t("重新產生建議");
         writingStatus.textContent = t(pair.canReplace === false
-          ? "This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor."
-          : "選一個版本套用，不會自動送出訊息。");
+          ? "Preview only for this editor. Copy the suggestion as plain text; the original field has not been changed."
+          : pair.replacementMode === "draft-plain-text"
+            ? "Apply writes plain text through this editor. Mention links may become plain text. Nothing is sent automatically."
+            : "選一個版本套用，不會自動送出訊息。");
         // Scroll only the assistant, keeping the page and editor in place.
         const firstResult = preview.firstElementChild;
         if (!suggestion.hidden && firstResult) {

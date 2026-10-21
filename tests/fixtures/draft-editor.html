@@ -22,7 +22,8 @@
 </style>
 <div id="app"></div>
 <output id="model-text"></output
-><button id="rerender" type="button">Parent rerender</button>
+><button id="rerender" type="button" onmousedown="event.preventDefault()">Parent rerender</button>
+<button id="mention-fixture" type="button">Use mention draft</button>
 <script src="/draft-vendor/react.js"></script>
 <script src="/draft-vendor/react-dom.js"></script>
 <script src="/draft-vendor/immutable.js"></script>
@@ -41,6 +42,18 @@
     componentDidMount() {
       document.getElementById("rerender").onclick = () =>
         this.setState({ tick: this.state.tick + 1 });
+      document.getElementById("mention-fixture").onclick = () => {
+        let content = Draft.ContentState.createFromText("@Example Person hello r u there");
+        content = content.createEntity("mention", "IMMUTABLE", {name: "Example Person"});
+        const entity = content.getLastCreatedEntityKey();
+        const selection = Draft.SelectionState.createEmpty(content.getFirstBlock().getKey()).merge({anchorOffset:0,focusOffset:15});
+        content = Draft.Modifier.applyEntity(content, selection, entity);
+        const decorator = new Draft.CompositeDecorator([{
+          strategy: (block, callback) => block.findEntityRanges(c => c.getEntity() === entity, callback),
+          component: props => React.createElement("span", {"data-testid":"mentionText"}, props.children),
+        }]);
+        this.setState({editorState: Draft.EditorState.createWithContent(content, decorator)});
+      };
       this.record();
     }
     componentDidUpdate() {

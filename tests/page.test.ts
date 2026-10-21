@@ -154,7 +154,37 @@ it("captures structured mentions for suggestions but never replaces their entiti
   expect(captured.text).toBe('@Example Person Notification Matrix');
   expect(captured.applicable).toBe(true);
   expect(captured.canReplace).toBe(false);
-  expect(()=>pageAction('apply',{generation:captured.generation,original:captured.text,result:'Replacement'})).toThrow('structured');
+  expect(()=>pageAction('apply',{generation:captured.generation,original:captured.text,result:'Replacement'})).toThrow('unsupported_editor');
   expect(editor.querySelector('[data-mention-id]')).not.toBeNull();
   expect(editor.textContent).toBe(captured.text);
+});
+
+it("protects company Draft.js editable mention decorators identified by mentionText", () => {
+  document.body.innerHTML = '<div contenteditable="true" tabindex="0" class="public-DraftEditor-content"><div data-contents="true"><div data-block="true" data-offset-key="example-0-0"><span data-testid="mentionText" spellcheck="false"><span data-offset-key="example-0-0"><span data-text="true">@Example Person</span></span></span><span data-offset-key="example-1-0"><span data-text="true"> hello r u there</span></span></div></div></div>';
+  const editor = document.querySelector('div')!;
+  Object.defineProperty(editor,'isContentEditable',{value:true});
+  Object.defineProperty(editor,'innerText',{get:()=>editor.textContent});
+  editor.focus();
+  const captured = pageAction('capture',{});
+  expect(captured.canReplace).toBe(false);
+  expect(()=>pageAction('apply',{generation:captured.generation,original:captured.text,result:'Hello'})).toThrow('unsupported_editor');
+  expect(editor.querySelector('[data-testid="mentionText"]')?.textContent).toBe('@Example Person');
+});
+it("unknown rich editors without any mention markers are preview-only", () => {
+  document.body.innerHTML = '<div contenteditable="true" tabindex="0">Original text</div>';
+  const editor=document.querySelector('div')!;
+  Object.defineProperty(editor,'isContentEditable',{value:true});
+  Object.defineProperty(editor,'innerText',{get:()=>editor.textContent}); editor.focus();
+  const captured=pageAction('capture',{});
+  expect(captured.canReplace).toBe(false);
+  expect(()=>pageAction('apply',{generation:captured.generation,original:'Original text',result:'Replacement'})).toThrow('unsupported_editor');
+  expect(editor.textContent).toBe('Original text');
+});
+it("restores the original textarea if a controlled editor rejects replacement", () => {
+  document.body.innerHTML='<textarea>Original</textarea>';
+  const editor=document.querySelector('textarea')!; editor.focus();
+  editor.addEventListener('input',()=>{if(editor.value==='Replacement')editor.value='';});
+  const captured=pageAction('capture',{});
+  expect(()=>pageAction('apply',{generation:captured.generation,original:'Original',result:'Replacement'})).toThrow('replacement_failed');
+  expect(editor.value).toBe('Original');
 });

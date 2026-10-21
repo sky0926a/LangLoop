@@ -462,18 +462,9 @@ test("page launcher stays idle until clicked and corrects textarea and contented
     web.getByRole("dialog", { name: "Field writing suggestions" }),
   ).toContainText("Full suggestion");
   await web.screenshot({ path: ".local/correction-word-diff.png" });
-  await web
-    .getByRole("button", { name: "Apply basic version", exact: true })
-    .click();
-  await expect(web.locator("#chat-editor")).toHaveText(
-    "I look forward to hearing from you.",
-  );
-  await web
-    .getByRole("button", { name: "Undo application", exact: true })
-    .click();
-  await expect(web.locator("#chat-editor")).toHaveText(
-    "I look forward to hear from you.",
-  );
+  await expect(web.getByRole("button", { name: "Apply basic version", exact: true })).toBeDisabled();
+  await expect(web.getByRole("button", { name: "Copy basic version as plain text", exact: true })).toBeVisible();
+  await expect(web.locator("#chat-editor")).toHaveText("I look forward to hear from you.");
   const popover = web.getByRole("dialog", {
     name: "Field writing suggestions",
   });
@@ -843,37 +834,28 @@ test("writing draft stays editable after apply and regenerates without changing 
   await web.getByRole("button", { name: "Close suggestions" }).click();
 });
 
-test("Draft.js shell anchors the badge and controlled state survives apply/undo", async () => {
+test("Draft.js paste adapter applies over an immutable mention, survives rerender and restores original", async () => {
+  await worker.evaluate(async (endpoint) => {
+    const {settings} = await chrome.storage.local.get("settings");
+    await chrome.storage.local.set({settings:{...settings,setupKind:"custom",endpoint,model:"fixture-model"}});
+  }, `http://127.0.0.1:${port}/v1`);
   const draftPage = await context.newPage();
   await draftPage.goto(`http://127.0.0.1:${port}/draft-editor`);
+  await draftPage.getByRole("button", {name:"Use mention draft"}).click();
   const editor = draftPage.locator(".public-DraftEditor-content");
   await editor.click();
-  const badge = draftPage.getByRole("button", {
-    name: "LangLoop correct this field",
-  });
-  await expect(badge).toBeVisible();
-  const fieldRect = (await editor.boundingBox())!,
-    shell = (await draftPage.locator(".editor").boundingBox())!,
-    icon = (await badge.boundingBox())!;
-  expect(fieldRect.height).toBeLessThan(28);
-  expect(icon.y + icon.height / 2).toBeCloseTo(shell.y + shell.height / 2, 0);
-  await badge.click();
-  await draftPage
-    .getByRole("button", { name: /^Generate (suggestions|again)$/ })
-    .click();
-  await draftPage.getByRole("button", { name: "Apply basic version" }).click();
-  await expect(draftPage.locator("#model-text")).toHaveText(
-    "I look forward to hearing from you.",
-  );
-  await draftPage.getByRole("button", { name: "Undo application" }).click();
-  await expect(draftPage.locator("#model-text")).toHaveText(
-    "I look forward to hear from you.",
-  );
-  await draftPage.getByRole("button", { name: "Parent rerender" }).click();
-  await expect(editor).toHaveText("I look forward to hear from you.");
-  await editor.click();
-  await expect(badge).toBeVisible();
-  await draftPage.screenshot({ path: ".local/draftjs-compatibility.png" });
+  await draftPage.getByRole("button", {name:"LangLoop correct this field"}).click();
+  await draftPage.getByRole("button", {name:/^Generate (suggestions|again)$/}).click();
+  const apply = draftPage.getByRole("button", {name:"Apply basic version",exact:true});
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(editor).toHaveText("I look forward to hearing from you.");
+  await expect(draftPage.locator("#model-text")).toHaveText("I look forward to hearing from you.");
+  await draftPage.getByRole("button", {name:"Parent rerender"}).click();
+  await expect(editor).toHaveText("I look forward to hearing from you.");
+  await draftPage.getByRole("button", {name:"Undo application"}).click();
+  await expect(editor).toHaveText("@Example Person hello r u there");
+  await expect(draftPage.locator("#model-text")).toHaveText("@Example Person hello r u there");
   await draftPage.close();
 });
 
@@ -1301,7 +1283,7 @@ test("mention entities remain untouched and output language stays selectable dur
     const field = document.createElement('div');
     field.id = 'mention-editor'; field.contentEditable = 'true';
     field.setAttribute('role','textbox'); field.setAttribute('aria-label','Mention composer');
-    field.innerHTML = '<span contenteditable="false" data-mention-id="synthetic">@Example Person</span> Notification Matrix';
+    field.innerHTML = '<span data-testid="mentionText" spellcheck="false"><span data-offset-key="fixture-0-0"><span data-text="true">@Example Person</span></span></span><span data-offset-key="fixture-1-0"><span data-text="true"> Notification Matrix</span></span>';
     field.style.cssText = 'position:fixed;top:140px;left:50px;width:600px;min-height:80px;background:white';
     document.body.append(field);
   });
@@ -1321,13 +1303,13 @@ test("mention entities remain untouched and output language stays selectable dur
     await expect(web.locator('[data-writing-output]')).toHaveCount(2);
     await expect(web.getByRole('button',{name:'Apply basic version',exact:true})).toBeDisabled();
     await expect(web.getByRole('button',{name:'Copy basic version as plain text',exact:true})).toBeVisible();
-    await expect(field.locator('[data-mention-id]')).toHaveText('@Example Person');
+    await expect(field.locator('[data-testid="mentionText"]')).toHaveText('@Example Person');
     await expect(field).toHaveText('@Example Person Notification Matrix');
     expect(requests.at(-1).messages[0].content).toContain('Translation output language: zh-TW');
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await web.getByRole('button',{name:'Copy basic version as plain text',exact:true}).click();
     await expect.poll(() => web.evaluate(() => navigator.clipboard.readText())).toBe('I look forward to hearing from you.');
-    await expect(field.locator('[data-mention-id]')).toHaveText('@Example Person');
+    await expect(field.locator('[data-testid="mentionText"]')).toHaveText('@Example Person');
   } finally { sampleDelay = 0; }
 });
 

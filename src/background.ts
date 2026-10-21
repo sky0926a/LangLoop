@@ -352,6 +352,7 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
         suggestion: variant(result.suggestion),
         sameLanguage,
         canReplace: captured.canReplace !== false,
+        replacementMode: captured.replacementMode,
       };
     }
     if (p.action === "settings") {

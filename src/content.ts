@@ -1,5 +1,8 @@
 // Executes only after an explicit extension action, in Chrome's isolated world.
-export function pageAction(action: string, payload: any) {
+type PageActionResult = { ok?: boolean; generation?: any; url?: string; text?: any; applicable?: boolean; canReplace?: boolean; replacementMode?: string; blocks?: any[]; inserted?: number };
+export function pageAction(action: "capture" | "generation" | "extract" | "insert" | "restore", payload: any): PageActionResult;
+export function pageAction(action: string, payload: any): PageActionResult | Promise<PageActionResult>;
+export function pageAction(action: string, payload: any): PageActionResult | Promise<PageActionResult> {
   const scope = globalThis as any;
   const state = (scope.__langloop ??= {
     generation: crypto.randomUUID(),
@@ -82,36 +85,56 @@ export function pageAction(action: string, payload: any) {
         !el.closest('[data-sensitive],[contenteditable="false"]'))
     );
   }
-  function structured(el: HTMLElement) {
-    return !(el instanceof HTMLTextAreaElement) && !!el.querySelector(
-      'a,img,iframe,video,[contenteditable="false"],[data-mention-id],[data-entity-key],[data-lexical-decorator="true"],[data-slate-void="true"]',
-    );
+  function draftEditor(el: HTMLElement) {
+    return el.matches('.public-DraftEditor-content[contenteditable="true"]') && !!el.closest('.DraftEditor-root');
+  }
+  function canReplace(el: HTMLElement) { return safeTextarea(el) || draftEditor(el); }
+  async function pasteDraft(el: HTMLElement, text: string) {
+    const before = valueOf(el);
+    el.focus();
+    const range = document.createRange(); range.selectNodeContents(el);
+    const selection = getSelection();
+    if (!selection) throw new Error("replacement_failed: Cannot select the editor.");
+    selection.removeAllRanges(); selection.addRange(range);
+    // Let the browser selectionchange event synchronize Draft's SelectionState.
+    await new Promise(resolve => setTimeout(resolve, 30));
+    if (!el.isConnected || valueOf(el) !== before) throw new Error("stale_source: The field changed before replacement.");
+    const clipboard = new DataTransfer(); clipboard.setData("text/plain", text);
+    const event = new ClipboardEvent("paste", {bubbles:true,cancelable:true,clipboardData:clipboard});
+    el.dispatchEvent(event);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    if (valueOf(el) === text) return;
+    // Draft's undo command restores its own model, rather than repairing DOM.
+    if (valueOf(el) !== before) {
+      el.dispatchEvent(new KeyboardEvent("keydown", {bubbles:true,cancelable:true,key:"z",code:"KeyZ",keyCode:90,which:90,ctrlKey:true,metaKey:true}));
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    throw new Error("replacement_failed: The editor did not accept the complete text. Keep the original draft and copy the suggestion instead.");
   }
   function valueOf(el: HTMLElement) {
     return el instanceof HTMLTextAreaElement ? el.value : el.innerText;
   }
   function replace(el: HTMLElement, text: string, undo = false) {
-    if (el instanceof HTMLTextAreaElement) {
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(el, text);
-      el.dispatchEvent(
-        new InputEvent("input", {
-          bubbles: true,
-          inputType: undo ? "historyUndo" : "insertReplacementText",
-          data: text,
-        }),
-      );
-    } else {
-      el.focus();
-      const selection = getSelection()!,
-        range = document.createRange();
-      range.selectNodeContents(el);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      if (!document.execCommand("insertText", false, text))
-        throw new Error("This editor does not support direct replacement.");
+    if (draftEditor(el)) {
+      if (typeof text !== "string" || !text.trim()) throw new Error("replacement_failed: Empty replacement refused.");
+      return pasteDraft(el, text);
+    }
+    if (!safeTextarea(el)) throw new Error("unsupported_editor: Preview only for this editor. Copy the suggestion as plain text; the original field has not been changed.");
+    if (typeof text !== "string" || !text.trim()) throw new Error("replacement_failed: Empty replacement refused. Your original text is unchanged.");
+    const field = el as HTMLTextAreaElement;
+    const original = field.value;
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+    const notify = (value: string, inputType: string) => field.dispatchEvent(new InputEvent("input", {
+      bubbles: true, inputType, data: value,
+    }));
+    set.call(field, text);
+    notify(text, undo ? "historyUndo" : "insertReplacementText");
+    if (field.value !== text) {
+      set.call(field, original);
+      notify(original, "historyUndo");
+      // Keep a readable recovery draft even if the host rejects the rollback.
+      if (field.value !== original) set.call(field, original);
+      throw new Error("replacement_failed: This editor rejected the replacement. The original text was restored; copy the suggestion instead.");
     }
   }
   if (action === "restore") {
@@ -159,7 +182,8 @@ export function pageAction(action: string, payload: any) {
     return {
       text: value.slice(0, 20000),
       applicable,
-      canReplace: applicable && !structured(state.snapshot.el),
+      canReplace: applicable && canReplace(state.snapshot.el),
+      replacementMode: applicable && draftEditor(state.snapshot.el) ? "draft-plain-text" : "native",
       generation: state.generation,
       url: location.href,
     };
@@ -177,21 +201,26 @@ export function pageAction(action: string, payload: any) {
       throw new Error(
         "stale_source: The field changed or is unsupported. Capture it again, or copy your result.",
       );
-    if (structured(snap.el)) throw new Error("structured_editor: This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor.");
+    if (!canReplace(snap.el)) throw new Error("unsupported_editor: Preview only for this editor. Copy the suggestion as plain text; the original field has not been changed.");
     const original = valueOf(snap.el);
-    replace(snap.el, payload.result);
-    state.undo = { el: snap.el, before: original, after: payload.result };
-    state.snapshot = { el: snap.el, before: payload.result };
-    return { ok: true };
+    const finish = () => {
+      state.undo = { el: snap.el, before: original, after: payload.result };
+      state.snapshot = { el: snap.el, before: payload.result };
+      return { ok: true };
+    };
+    const result = replace(snap.el, payload.result);
+    return result ? result.then(finish) : finish();
   }
   if (action === "undo") {
     const u = state.undo;
-    if (!u || !u.el.isConnected || !editable(u.el) || structured(u.el) || valueOf(u.el) !== u.after)
+    if (!u || !u.el.isConnected || !editable(u.el) || !canReplace(u.el) || valueOf(u.el) !== u.after)
       throw new Error("stale_source: Undo would overwrite newer edits.");
-    replace(u.el, u.before, true);
-    state.undo = null;
-    state.snapshot = { el: u.el, before: u.before };
-    return { ok: true };
+    const finish = () => {
+      state.undo = null; state.snapshot = { el: u.el, before: u.before };
+      return { ok: true };
+    };
+    const result = replace(u.el, u.before, true);
+    return result ? result.then(finish) : finish();
   }
   if (action === "extract") {
     restore();

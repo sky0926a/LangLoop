@@ -1,5 +1,7 @@
 export type UILanguage = "zh-TW" | "en";
 export const messages: [string, string][] = [
+  ["Apply writes plain text through this editor. Mention links may become plain text. Nothing is sent automatically.", "套用會透過此編輯器寫入純文字；mention 可能轉為普通文字，不會自動送出訊息。"],
+  ["Preview only for this editor. Copy the suggestion as plain text; the original field has not been changed.", "此編輯器目前僅提供建議與純文字複製，不直接取代；原輸入框未被修改。"],
   ["Copy plain text", "複製純文字"],
   ["Copy basic version as plain text", "複製基本版本純文字"],
   ["Copy contextual suggestion as plain text", "複製情境建議純文字"],
