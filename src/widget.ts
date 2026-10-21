@@ -44,6 +44,15 @@ export function mountWidget(
   host.style.cssText =
     "position:fixed;right:20px;bottom:20px;z-index:2147483647";
   const root = host.attachShadow({ mode: "open" });
+  // Shadow DOM retargets these events to our host outside the assistant.
+  // Keep page-wide composer shortcuts from stealing focus or cancelling IME.
+  // Do not preventDefault: native composition, editing and clipboard behavior
+  // must continue inside LangLoop.
+  for (const type of [
+    "keydown", "keyup", "keypress", "beforeinput", "input",
+    "compositionstart", "compositionupdate", "compositionend",
+    "paste", "cut", "copy",
+  ]) root.addEventListener(type, (event) => event.stopPropagation());
   const style = document.createElement("style");
   style.textContent = `:host{all:initial}section{box-sizing:border-box;max-height:calc(100vh - 16px);overflow:auto;width:328px;max-width:calc(100vw - 16px);padding:14px;background:#f8f9ff;color:#28314d;border:1px solid #cdd5ee;border-radius:14px;box-shadow:0 6px 28px #0003;font:14px/1.5 system-ui}button{font:inherit;background:#fff;color:#4b4f94;border:1px solid #cdd5ee;border-radius:7px;padding:7px 10px;margin:3px;cursor:pointer}button:disabled{opacity:.5}button:not([hidden]){display:inline-flex;align-items:center}button:focus-visible{outline:2px solid #7770df;outline-offset:2px}p{white-space:pre-wrap;max-height:200px;overflow:auto;margin:8px 0}strong{display:block}.heading{display:flex;align-items:center;gap:8px;margin-bottom:12px}.heading strong{flex:1}.writing-heading{position:sticky;top:-14px;z-index:2;background:#f8f9ff;margin:-14px -14px 12px;padding:14px;border-bottom:1px solid #dfe3f0}.heading button{margin:0;padding:5px 8px}.hint{font-size:12px;color:#6b7391}button[aria-pressed=true]{background:#ecebff;border-color:#827add}.primary{background:#5659bd;color:white;border-color:#5659bd}.page-actions{display:flex;flex-wrap:wrap;gap:4px}section>p[role=status]{font-size:12px;color:#646e89;border-top:1px solid #e1e5f3;padding-top:12px}del{color:#962a2a;background:#fce7e7;text-decoration:line-through}ins{color:#4059a6;background:#e8edff;text-decoration:none}del+ins{margin-left:4px}.writing-selectors{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0 8px}.writing-selectors label{font-size:12px;color:#69728c}.writing-selectors select{display:block;width:100%;margin-top:5px;padding:8px;border:1px solid #cdd5ee;border-radius:8px;background:#fff;color:#28314d;font:14px system-ui}.writing-result{border-top:1px solid #dfe3f0;margin-top:16px;padding-top:12px}.writing-result.polished{background:#f0efff;border:0;border-radius:10px;padding:12px}.writing-result .heading{margin-bottom:8px}.writing-result p{max-height:none}.generate{width:100%;justify-content:center;margin:12px 0 0}.writing-tools{display:flex;justify-content:flex-end}.full-label{font-size:12px;color:#69728c;margin-top:10px}h4{font:600 13px system-ui;margin:12px 0 6px}`;
   const mini = document.createElement("button");
@@ -339,6 +348,7 @@ export function mountWidget(
       positionMini();
     });
   async function applyVariant(value: any) {
+    if (pair?.canReplace === false) throw new Error(t("This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor."));
     applying = true;
     try {
       await rpc("apply", value);
@@ -420,7 +430,19 @@ export function mountWidget(
     row.className = "heading";
     const title = document.createElement("strong");
     title.textContent = label;
-    row.append(title, primary ? apply : applySuggested);
+    const copy = document.createElement("button");
+    copy.textContent = t("Copy plain text");
+    copy.setAttribute("aria-label", t(primary ? "Copy basic version as plain text" : "Copy contextual suggestion as plain text"));
+    copy.addEventListener("click", async (event) => {
+      if (!event.isTrusted) return;
+      try {
+        await navigator.clipboard.writeText(value.result);
+        writingStatus.textContent = t("Copied plain text. Clickable mentions are not included; keep or reselect them in the original editor.");
+      } catch {
+        writingStatus.textContent = t("Copy failed. Select and copy the suggestion text manually.");
+      }
+    });
+    row.append(title, copy, primary ? apply : applySuggested);
     card.append(row);
     if (pair.sameLanguage) {
       const comparison = document.createElement("p");
@@ -471,12 +493,15 @@ export function mountWidget(
         const target = editor;
         const original = draftText();
         draftSnapshot = original;
+        const requestedProfile = profileSelect.value;
+        const requestedOutput = outputSelect.value;
+        const requestedDraft = draftInput.value;
         editor.focus();
         writingStatus.textContent = t("正在產生兩個版本…");
         const response = await rpc("writing", {
-          profileId: profileSelect.value,
-          target: outputSelect.value,
-          draft: draftInput.value,
+          profileId: requestedProfile,
+          target: requestedOutput,
+          draft: requestedDraft,
         });
         if (
           target !== editor ||
@@ -484,6 +509,10 @@ export function mountWidget(
           original !== draftText()
         )
           throw new Error(t("文字已變更，請重新產生建議。"));
+        if (profileSelect.value !== requestedProfile || outputSelect.value !== requestedOutput || draftInput.value !== requestedDraft) {
+          writingStatus.textContent = t("Options changed. Generate again to use the selected language and context.");
+          return;
+        }
         pair = response;
         stale = false;
 
@@ -499,7 +528,9 @@ export function mountWidget(
           false,
         );
         generate.textContent = t("重新產生建議");
-        writingStatus.textContent = t("選一個版本套用，不會自動送出訊息。");
+        writingStatus.textContent = t(pair.canReplace === false
+          ? "This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor."
+          : "選一個版本套用，不會自動送出訊息。");
         // Scroll only the assistant, keeping the page and editor in place.
         const firstResult = preview.firstElementChild;
         if (!suggestion.hidden && firstResult) {
@@ -601,11 +632,11 @@ export function mountWidget(
     stop.hidden = !translating;
     stop.disabled = !translating || stopped || invalidated;
     apply.hidden = applySuggested.hidden = !pair || invalidated;
-    profileSelect.disabled = outputSelect.disabled = busy || invalidated;
+    profileSelect.disabled = outputSelect.disabled = invalidated;
     generate.disabled ||= !optionsLoaded || !draftInput.value.trim();
     draftInput.disabled = busy || invalidated;
-    apply.disabled ||= stale;
-    applySuggested.disabled ||= stale;
+    apply.disabled ||= stale || pair?.canReplace === false;
+    applySuggested.disabled ||= stale || pair?.canReplace === false;
     undo.hidden = !canUndo || invalidated;
   }
   updateControls();

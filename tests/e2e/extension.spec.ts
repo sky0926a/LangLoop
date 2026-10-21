@@ -1290,3 +1290,76 @@ test("separate settings sections and multiple same-provider connections retain i
   });
   await p.close();
 });
+
+test("mention entities remain untouched and output language stays selectable during generation", async () => {
+  await worker.evaluate((settings) => chrome.storage.local.set({ settings }), {
+    ...defaults, uiLanguage: "en", setupKind: "custom",
+    endpoint: `http://127.0.0.1:${port}/v1`, model: "fixture-model",
+  });
+  await web.reload();
+  await web.evaluate(() => {
+    const field = document.createElement('div');
+    field.id = 'mention-editor'; field.contentEditable = 'true';
+    field.setAttribute('role','textbox'); field.setAttribute('aria-label','Mention composer');
+    field.innerHTML = '<span contenteditable="false" data-mention-id="synthetic">@Example Person</span> Notification Matrix';
+    field.style.cssText = 'position:fixed;top:140px;left:50px;width:600px;min-height:80px;background:white';
+    document.body.append(field);
+  });
+  const field = web.getByRole('textbox',{name:'Mention composer'});
+  await field.click();
+  await web.getByRole('button',{name:'LangLoop correct this field'}).click();
+  const output = web.getByLabel('Output language',{exact:true});
+  await output.selectOption('en');
+  sampleDelay = 400;
+  try {
+    await web.getByRole('button',{name:/^Generate (suggestions|again)$/}).click();
+    await expect(output).toBeEnabled();
+    await output.selectOption('zh-TW');
+    await expect(web.getByRole('button',{name:/^Generate (suggestions|again)$/})).toBeEnabled();
+    await expect(web.locator('[data-writing-output]')).toHaveCount(0);
+    await web.getByRole('button',{name:/^Generate (suggestions|again)$/}).click();
+    await expect(web.locator('[data-writing-output]')).toHaveCount(2);
+    await expect(web.getByRole('button',{name:'Apply basic version',exact:true})).toBeDisabled();
+    await expect(web.getByRole('button',{name:'Copy basic version as plain text',exact:true})).toBeVisible();
+    await expect(field.locator('[data-mention-id]')).toHaveText('@Example Person');
+    await expect(field).toHaveText('@Example Person Notification Matrix');
+    expect(requests.at(-1).messages[0].content).toContain('Translation output language: zh-TW');
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await web.getByRole('button',{name:'Copy basic version as plain text',exact:true}).click();
+    await expect.poll(() => web.evaluate(() => navigator.clipboard.readText())).toBe('I look forward to hearing from you.');
+    await expect(field.locator('[data-mention-id]')).toHaveText('@Example Person');
+  } finally { sampleDelay = 0; }
+});
+
+test("original draft isolates composing keystrokes and paste from page shortcuts", async () => {
+  await web.reload();
+  await web.locator('#draft').fill('Original message');
+  await web.getByRole('button',{name:'LangLoop correct this field'}).click();
+  const draft = web.getByRole('textbox',{name:'Original draft',exact:true});
+  await draft.focus();
+  await web.evaluate(() => {
+    (window as any).imeLeaks = 0;
+    document.addEventListener('keydown', (event) => {
+      if (event.isComposing || event.key === 'Enter') {
+        (window as any).imeLeaks++;
+        event.preventDefault();
+        (document.querySelector('#draft') as HTMLTextAreaElement).focus();
+      }
+    });
+    document.addEventListener('compositionstart', () => {
+      (window as any).imeLeaks++;
+      (document.querySelector('#draft') as HTMLTextAreaElement).focus();
+    });
+    document.addEventListener('paste', (event) => { (window as any).imeLeaks++; event.preventDefault(); });
+  });
+  await draft.dispatchEvent('compositionstart', {data:'中',bubbles:true,composed:true});
+  await draft.dispatchEvent('keydown',{key:'Unidentified',code:'',keyCode:229,isComposing:true,bubbles:true,composed:true,cancelable:true});
+  await expect(draft).toBeFocused();
+  await web.keyboard.insertText('中文測試');
+  await draft.dispatchEvent('compositionend',{data:'中文測試',bubbles:true,composed:true});
+  await draft.dispatchEvent('paste',{bubbles:true,composed:true,cancelable:true});
+  await draft.press('Enter');
+  expect(await draft.inputValue()).toContain('中文測試\n');
+  expect(await web.evaluate(() => (window as any).imeLeaks)).toBe(0);
+  await expect(web.locator('#draft')).toHaveValue('Original message');
+});

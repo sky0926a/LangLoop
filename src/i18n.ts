@@ -1,5 +1,12 @@
 export type UILanguage = "zh-TW" | "en";
 export const messages: [string, string][] = [
+  ["Copy plain text", "複製純文字"],
+  ["Copy basic version as plain text", "複製基本版本純文字"],
+  ["Copy contextual suggestion as plain text", "複製情境建議純文字"],
+  ["This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor.", "此輸入框包含 mention 或豐富內容，已停用整框取代。可複製純文字建議；可點擊的 mention 請在原輸入框保留或重新選取。"],
+  ["Copied plain text. Clickable mentions are not included; keep or reselect them in the original editor.", "已複製純文字，不包含可點擊的 mention；請在原輸入框保留或重新選取 mention。"],
+  ["Copy failed. Select and copy the suggestion text manually.", "複製失敗，請選取建議文字並手動複製。"],
+  ["Options changed. Generate again to use the selected language and context.", "選項已變更，請重新產生建議以使用選定的語言與情境。"],
   ["The model context limit was exceeded. A single paragraph may be too long; select a model with a larger context window or translate a shorter selection.", "超過模型的上下文上限；單一段落可能過長，請換用上下文容量較大的模型，或選取較短的文字翻譯。"],
   ["The page needs too many smaller batches. Select a model with a larger context window or translate a shorter selection.", "此頁需要拆成太多小批次，請換用上下文容量較大的模型，或選取較短的文字翻譯。"],
   ["AI account quota is exhausted. Wait for the quota reset or switch connections.", "AI 帳號額度已用盡，請等待額度重設或切換連線。"],

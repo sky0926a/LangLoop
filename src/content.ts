@@ -79,8 +79,12 @@ export function pageAction(action: string, payload: any) {
       safeTextarea(el) ||
       (el instanceof HTMLElement &&
         el.isContentEditable &&
-        !el.closest('[data-sensitive],[contenteditable="false"]') &&
-        !el.querySelector('img,iframe,video,[contenteditable="false"]'))
+        !el.closest('[data-sensitive],[contenteditable="false"]'))
+    );
+  }
+  function structured(el: HTMLElement) {
+    return !(el instanceof HTMLTextAreaElement) && !!el.querySelector(
+      'a,img,iframe,video,[contenteditable="false"],[data-mention-id],[data-entity-key],[data-lexical-decorator="true"],[data-slate-void="true"]',
     );
   }
   function valueOf(el: HTMLElement) {
@@ -155,6 +159,7 @@ export function pageAction(action: string, payload: any) {
     return {
       text: value.slice(0, 20000),
       applicable,
+      canReplace: applicable && !structured(state.snapshot.el),
       generation: state.generation,
       url: location.href,
     };
@@ -172,6 +177,7 @@ export function pageAction(action: string, payload: any) {
       throw new Error(
         "stale_source: The field changed or is unsupported. Capture it again, or copy your result.",
       );
+    if (structured(snap.el)) throw new Error("structured_editor: This field contains mentions or rich content. Copy plain text instead; clickable mentions must be kept or reselected in the original editor.");
     const original = valueOf(snap.el);
     replace(snap.el, payload.result);
     state.undo = { el: snap.el, before: original, after: payload.result };
@@ -180,7 +186,7 @@ export function pageAction(action: string, payload: any) {
   }
   if (action === "undo") {
     const u = state.undo;
-    if (!u || !u.el.isConnected || !editable(u.el) || valueOf(u.el) !== u.after)
+    if (!u || !u.el.isConnected || !editable(u.el) || structured(u.el) || valueOf(u.el) !== u.after)
       throw new Error("stale_source: Undo would overwrite newer edits.");
     replace(u.el, u.before, true);
     state.undo = null;

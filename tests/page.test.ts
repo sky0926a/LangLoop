@@ -144,3 +144,17 @@ it("includes page heading outside article, sticky navigation and figure descript
     "Additional text",
   ]);
 });
+it("captures structured mentions for suggestions but never replaces their entities with plain text", () => {
+  document.body.innerHTML = '<div contenteditable="true" tabindex="0"><span contenteditable="false" data-mention-id="synthetic">@Example Person</span> Notification Matrix</div>';
+  const editor = document.querySelector('div')!;
+  Object.defineProperty(editor, 'isContentEditable', {value:true});
+  Object.defineProperty(editor, 'innerText', {get:()=>editor.textContent});
+  editor.focus();
+  const captured = pageAction('capture', {});
+  expect(captured.text).toBe('@Example Person Notification Matrix');
+  expect(captured.applicable).toBe(true);
+  expect(captured.canReplace).toBe(false);
+  expect(()=>pageAction('apply',{generation:captured.generation,original:captured.text,result:'Replacement'})).toThrow('structured');
+  expect(editor.querySelector('[data-mention-id]')).not.toBeNull();
+  expect(editor.textContent).toBe(captured.text);
+});
