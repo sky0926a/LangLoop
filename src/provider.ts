@@ -9,7 +9,7 @@ import {
   accountHeader,
   boundedText,
   CODEX,
-  decodeCodexStream,
+  readCodexStream,
 } from "./chatgpt";
 import {
   cacheIdentity,
@@ -44,7 +44,7 @@ async function inferBatch(
     } catch (error) {
       signal.throwIfAborted();
       if (request.operation === "article" && error instanceof Fault &&
-          error.code === "context_limit" && (request.blocks?.length ?? 0) > 1 && budget.remaining > 1) {
+          ["context_limit", "response_too_large"].includes(error.code) && (request.blocks?.length ?? 0) > 1 && budget.remaining > 1) {
         const blocks = request.blocks!;
         const middle = Math.ceil(blocks.length / 2);
         const translations: { id: string; translation: string }[] = [];
@@ -306,7 +306,7 @@ async function inferOnce(
     );
   if (isChatGPT)
     return decodeResponse(
-      decodeCodexStream(await boundedText(response)),
+      await readCodexStream(response, signal),
       request,
     );
   // Bound response allocation even when Content-Length is absent.
@@ -322,7 +322,7 @@ async function inferOnce(
       bytes += value.length;
       if (bytes > 250000) {
         await reader.cancel();
-        throw new Fault("invalid_response", "Provider response is too large.");
+        throw new Fault("response_too_large", "Provider response is too large. Translate a shorter selection or choose a model with shorter output.");
       }
       raw += decoder.decode(value, { stream: true });
     }

@@ -1,4 +1,6 @@
 import { beforeEach, it, expect, vi } from "vitest";
+import { infer } from "../src/provider";
+import { defaults, type Inference } from "../src/core";
 import {
   beginLogin,
   finishLogin,
@@ -6,6 +8,8 @@ import {
   accessToken,
   loginStatus,
   decodeCodexStream,
+  readCodexStream,
+  boundedText,
 } from "../src/chatgpt";
 let local: Record<string, any>, session: Record<string, any>;
 beforeEach(() => {
@@ -272,4 +276,88 @@ it("isolates same-provider credentials and logout by connection", async () => {
 
 it("recognizes context overflow in failed Codex stream events without exposing raw text", () => {
   expect(() => decodeCodexStream('data: '+JSON.stringify({type:'response.failed',response:{error:{code:'context_length_exceeded',message:'private detail'}}})+'\n')).toThrow(expect.objectContaining({code:'context_limit'}));
+});
+
+it("translates an article when Codex stream overhead exceeds 250 KB but the result is small", async () => {
+  local.codexAuth = { access_token: "fixture-token", expiresAt: Date.now() + 3600000 };
+  const request: Inference = { requestId: "11111111-1111-4111-8111-111111111111", operation: "article", providerId: "configured", text: "Translate", context: "", sourceLanguage: "auto", targetLanguage: "zh-TW", blocks: [{ id: "a", text: "Hello" }] };
+  const result = { translations: [{ id: "a", translation: "你好" }] };
+  const delta = 'data: ' + JSON.stringify({ type: "response.output_text.delta", delta: "x".repeat(200) }) + '\n\n';
+  const raw = delta.repeat(2000) + 'data: ' + JSON.stringify({ type: "response.completed", response: { status: "completed", output: [{ content: [{ type: "output_text", text: JSON.stringify(result) }] }] } }) + '\n\n';
+  expect(new TextEncoder().encode(raw).length).toBeGreaterThan(250000);
+  const fetcher = vi.fn().mockImplementation(() => new Response(raw));
+  await expect(infer(request, { ...defaults, setupKind: "chatgpt", model: "fixture" }, new AbortController().signal, fetcher)).resolves.toEqual(result);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("splits article batches after an oversized Codex result and validates merged block IDs", async () => {
+  local.codexAuth = { access_token: "fixture-token", expiresAt: Date.now() + 3600000 };
+  const request: Inference = { requestId: "11111111-1111-4111-8111-111111111111", operation: "article", providerId: "configured", text: "Translate", context: "", sourceLanguage: "auto", targetLanguage: "zh-TW", blocks: ["a", "b"].map(id => ({ id, text: "Hello" })) };
+  const fetcher = vi.fn().mockImplementation((_url, init) => {
+    const input = JSON.parse(JSON.parse(init.body).input[0].content[0].text);
+    const output = input.blocks.length > 1 ? "你".repeat(90000) : JSON.stringify({ translations: input.blocks.map((block: {id: string}) => ({id: block.id, translation: "你好"})) });
+    return new Response(sse({type: "response.completed", response: {status: "completed", output: [{ content: [{type: "output_text", text: output}] }]}}));
+  });
+  await expect(infer(request, { ...defaults, setupKind: "chatgpt", model: "fixture" }, new AbortController().signal, fetcher)).resolves.toEqual({ translations: [{ id: "a", translation: "你好" }, { id: "b", translation: "你好" }] });
+  expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+function streamedResponse(raw: string, chunkSize = 32768) {
+  const bytes = new TextEncoder().encode(raw);
+  let offset = 0;
+  const cancel = vi.fn();
+  const response = new Response(new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (offset === bytes.length) return controller.close();
+      controller.enqueue(bytes.slice(offset, offset + chunkSize));
+      offset = Math.min(bytes.length, offset + chunkSize);
+    },
+    cancel,
+  }));
+  return { response, cancel };
+}
+const sse = (event: unknown) => 'data: ' + JSON.stringify(event) + '\r\n\r\n';
+
+it("incrementally decodes UTF-8 events and deduplicates completed items before a usage-only completion", async () => {
+  const result = { result: "你好，日本語 한국어", explanation: "", rule: "" };
+  const item = { id: "message", content: [{ type: "output_text", text: JSON.stringify(result) }] };
+  const raw = ': keepalive\r\nevent: response.output_item.done\r\n' +
+    sse({ type: "response.output_item.done", item }) +
+    sse({ type: "response.output_item.done", item }) +
+    'data: ' + JSON.stringify({ type: "response.completed", response: { status: "completed", usage: {} } });
+  await expect(readCodexStream(streamedResponse(raw, 3).response)).resolves.toEqual(result);
+});
+
+it("refuses malformed, failed, or truncated streams instead of returning partial output", async () => {
+  const item = sse({ type: "response.output_item.done", item: { content: [{ type: "output_text", text: '{"result":"partial"}' }] } });
+  for (const raw of [item, 'data: {broken}\n', item + sse({ type: "response.failed", response: { error: { message: "private detail" } } })]) {
+    await expect(readCodexStream(streamedResponse(raw, 7).response)).rejects.toMatchObject({ code: "invalid_response" });
+  }
+  await expect(readCodexStream(streamedResponse(sse({ type: "response.failed", response: { error: { code: "context_length_exceeded" } } })).response)).rejects.toMatchObject({ code: "context_limit" });
+});
+
+it("bounds event size, retained output, and total wire bytes and cancels oversized streams", async () => {
+  const largeItem = { id: "large", content: [{ type: "output_text", text: "你".repeat(90000) }] };
+  for (const raw of [
+    'data: ' + 'x'.repeat(1000001),
+    sse({ type: "response.output_item.done", item: largeItem }),
+    sse({ type: "response.completed", response: { output: [largeItem] } }),
+    (':' + 'x'.repeat(899999) + '\n').repeat(10),
+  ]) {
+    const { response, cancel } = streamedResponse(raw);
+    await expect(readCodexStream(response)).rejects.toMatchObject({ code: "response_too_large" });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  }
+});
+
+it("honors cancellation before accepting a complete streamed result", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("Stopped"));
+  const { response, cancel } = streamedResponse(sse({ type: "response.completed", response: { output: [] } }));
+  await expect(readCodexStream(response, controller.signal)).rejects.toThrow("Stopped");
+  expect(cancel).toHaveBeenCalledTimes(1);
+});
+
+it("retains the smaller generic response limit for authorization and other JSON responses", async () => {
+  await expect(boundedText(new Response('x'.repeat(250001)))).rejects.toThrow("Response exceeded the size limit.");
 });

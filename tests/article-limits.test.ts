@@ -81,6 +81,24 @@ it("does not truncate an oversized single paragraph or retry it unchanged", asyn
  await expect(infer(request,settings,new AbortController().signal,fetcher)).rejects.toMatchObject({code:'context_limit'});
  expect(fetcher).toHaveBeenCalledTimes(1);
 });
+it("splits an oversized article response and keeps each original block ID", async () => {
+ const blocks = ['a','b'].map(id => ({id,text:'Hello'}));
+ const fetcher = vi.fn().mockImplementation((_url, init) => {
+  const input = JSON.parse(JSON.parse(init.body).messages[1].content);
+  return Promise.resolve(input.blocks.length > 1
+   ? new Response('x'.repeat(250001))
+   : new Response(JSON.stringify({choices:[{message:{content:JSON.stringify({translations:input.blocks.map((b:{id:string})=>({id:b.id,translation:'譯'+b.id}))})}}]})));
+ });
+ await expect(infer({...request,blocks},settings,new AbortController().signal,fetcher)).resolves.toEqual({translations:blocks.map(b=>({id:b.id,translation:'譯'+b.id}))});
+ expect(fetcher).toHaveBeenCalledTimes(3);
+});
+it("does not retry an oversized single paragraph or writing response", async () => {
+ for (const operation of ['article','explain'] as const) {
+  const fetcher = vi.fn().mockImplementation(() => new Response('x'.repeat(250001)));
+  await expect(infer({...request,operation},settings,new AbortController().signal,fetcher)).rejects.toMatchObject({code:'response_too_large'});
+  expect(fetcher).toHaveBeenCalledTimes(1);
+ }
+});
 it("bounds recursive splitting and never retries unrelated HTTP 400 errors", async () => {
  const blocks = Array.from({length:40},(_,i)=>({id:String(i),text:'sample'}));
  const fetcher = vi.fn().mockImplementation((_url,init) => {

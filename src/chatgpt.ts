@@ -241,12 +241,28 @@ export function accountHeader(token: string): Record<string, string> {
     return {};
   }
 }
-export function decodeCodexStream(raw: string): unknown {
-  const completedItems = new Map<string | number, any>();
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
+function responseSizeFault() {
+  return new Fault("response_too_large", "The response is too large. Translate a shorter selection or choose a model with shorter output.");
+}
+function codexDecoder() {
+  // Delta/reasoning events are transport overhead, not the final language result.
+  const completedItems = new Map<string | number, string>();
+  const encoder = new TextEncoder();
+  let retainedBytes = 0;
+  const outputText = (items: any[]): string => {
+    const output = items
+      .flatMap((item: any) => item.content || [])
+      .filter((item: any) => item.type === "output_text")
+      .map((item: any) => item.text)
+      .join("");
+    if (encoder.encode(output).length > 250000) throw responseSizeFault();
+    return output;
+  };
+  return (line: string): { value: unknown } | undefined => {
+    if (line.length > 1000000) throw responseSizeFault();
+    if (!line.startsWith("data:")) return;
     const value = line.slice(5).trim();
-    if (value === "[DONE]") continue;
+    if (value === "[DONE]") return;
     let event;
     try {
       event = JSON.parse(value);
@@ -264,25 +280,23 @@ export function decodeCodexStream(raw: string): unknown {
       );
     }
     if (event.type === "response.output_item.done" && event.item) {
-      completedItems.set(
-        event.item.id ?? event.output_index ?? completedItems.size,
-        event.item,
-      );
+      const output = outputText([event.item]);
+      if (output) {
+        const key = event.item.id ?? event.output_index ?? completedItems.size;
+        retainedBytes += encoder.encode(output).length - encoder.encode(completedItems.get(key) ?? "").length;
+        if (retainedBytes > 250000) throw responseSizeFault();
+        completedItems.set(key, output);
+      }
     }
     if (event.type === "response.completed") {
       if (event.response?.status && event.response.status !== "completed")
         throw new Fault("invalid_response", "Incomplete response.");
       // Codex sends content in output_item.done; completion can contain only usage.
-      const items = event.response?.output?.length
-        ? event.response.output
-        : [...completedItems.values()];
-      const output = items
-        .flatMap((item: any) => item.content || [])
-        .filter((item: any) => item.type === "output_text")
-        .map((item: any) => item.text)
-        .join("");
+      const output = event.response?.output?.length
+        ? outputText(event.response.output)
+        : [...completedItems.values()].join("");
       try {
-        return JSON.parse(output);
+        return { value: JSON.parse(output) };
       } catch {
         throw new Fault(
           "invalid_response",
@@ -292,11 +306,49 @@ export function decodeCodexStream(raw: string): unknown {
         );
       }
     }
+  };
+}
+export function decodeCodexStream(raw: string): unknown {
+  const accept = codexDecoder();
+  for (const line of raw.split(/\r?\n/)) {
+    const result = accept(line);
+    if (result) return result.value;
   }
   throw new Fault(
     "invalid_response",
     "No completed ChatGPT response received.",
   );
+}
+
+export async function readCodexStream(response: Response, signal?: AbortSignal): Promise<unknown> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Fault("invalid_response", "Empty response.");
+  const accept = codexDecoder();
+  const decoder = new TextDecoder();
+  let pending = "", bytes = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted();
+      if (done) break;
+      bytes += value.length;
+      // Bound wire traffic separately from retained output and individual events.
+      if (bytes > 8000000) throw responseSizeFault();
+      pending += decoder.decode(value, { stream: true });
+      let newline: number;
+      while ((newline = pending.indexOf("\n")) >= 0) {
+        const result = accept(pending.slice(0, newline).replace(/\r$/, ""));
+        pending = pending.slice(newline + 1);
+        if (result) return result.value;
+      }
+      if (pending.length > 1000000) throw responseSizeFault();
+    }
+    const result = accept((pending + decoder.decode()).replace(/\r$/, ""));
+    if (result) return result.value;
+    throw new Fault("invalid_response", "No completed ChatGPT response received.");
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
 }
 
 // Codex model discovery uses the upstream catalog protocol compatibility version.
